@@ -27,5 +27,6 @@ dist/
 tmp/
 bin/
 /store/
+/store-files/
 /registry/
 cmd/hauler/binaries

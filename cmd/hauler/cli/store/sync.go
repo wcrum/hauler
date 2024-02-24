@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"strings"
 
@@ -28,10 +29,11 @@ import (
 type SyncOpts struct {
 	*RootOpts
 	ContentFiles []string
+	ContentUrls  []string
 	Key          string
-	Products	 []string
-	Platform	 string
-	Registry	 string
+	Products     []string
+	Platform     string
+	Registry     string
 }
 
 func (o *SyncOpts) AddFlags(cmd *cobra.Command) {
@@ -42,6 +44,7 @@ func (o *SyncOpts) AddFlags(cmd *cobra.Command) {
 	f.StringSliceVar(&o.Products, "products", []string{}, "Used for RGS Carbide customers to supply a product and version and Hauler will retrieve the images. i.e. '--product rancher=v2.7.6'")
 	f.StringVarP(&o.Platform, "platform", "p", "", "(Optional) Specific platform to save. i.e. linux/amd64. Defaults to all if flag is omitted.")
 	f.StringVarP(&o.Registry, "registry", "r", "", "(Optional) Default pull registry for image refs that are not specifying a registry name.")
+	f.StringSliceVarP(&o.ContentUrls, "url", "u", []string{}, "URL to content file")
 }
 
 func SyncCmd(ctx context.Context, o *SyncOpts, s *store.Layout) error {
@@ -61,7 +64,7 @@ func SyncCmd(ctx context.Context, o *SyncOpts, s *store.Layout) error {
 		if err != nil {
 			return err
 		}
-		err = ExtractCmd(ctx, &ExtractOpts{RootOpts: o.RootOpts}, s, fmt.Sprintf("hauler/%s-manifest.yaml:%s", parts[0],tag))
+		err = ExtractCmd(ctx, &ExtractOpts{RootOpts: o.RootOpts}, s, fmt.Sprintf("hauler/%s-manifest.yaml:%s", parts[0], tag))
 		if err != nil {
 			return err
 		}
@@ -71,10 +74,11 @@ func SyncCmd(ctx context.Context, o *SyncOpts, s *store.Layout) error {
 		if err != nil {
 			return err
 		}
-		err = processContent(ctx, fi, o, s)
+		err = processContent(ctx, bufio.NewReader(fi), o, s)
 		if err != nil {
 			return err
 		}
+
 	}
 
 	// if passed a local manifest, process it
@@ -84,6 +88,24 @@ func SyncCmd(ctx context.Context, o *SyncOpts, s *store.Layout) error {
 		if err != nil {
 			return err
 		}
+
+		err = processContent(ctx, bufio.NewReader(fi), o, s)
+		if err != nil {
+			return err
+		}
+	}
+
+	// if passed urls, process it
+	for _, url := range o.ContentUrls {
+		l.Debugf("processing content for url: '%s'", url)
+		resp, err := http.Get(url)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+
+		fi := bufio.NewReader(resp.Body)
+
 		err = processContent(ctx, fi, o, s)
 		if err != nil {
 			return err
@@ -93,10 +115,10 @@ func SyncCmd(ctx context.Context, o *SyncOpts, s *store.Layout) error {
 	return nil
 }
 
-func processContent(ctx context.Context, fi *os.File, o *SyncOpts, s *store.Layout) error {
+func processContent(ctx context.Context, fi *bufio.Reader, o *SyncOpts, s *store.Layout) error {
 	l := log.FromContext(ctx)
 
-	reader := yaml.NewYAMLReader(bufio.NewReader(fi))
+	reader := yaml.NewYAMLReader(fi)
 
 	var docs [][]byte
 	for {
@@ -142,19 +164,19 @@ func processContent(ctx context.Context, fi *os.File, o *SyncOpts, s *store.Layo
 			}
 			a := cfg.GetAnnotations()
 			for _, i := range cfg.Spec.Images {
-	
+
 				// Check if the user provided a registry.  If a registry is provided in the annotation, use it for the images that don't have a registry in their ref name.
-				if a[consts.ImageAnnotationRegistry] != "" || o.Registry != ""{
-					newRef,_ := reference.Parse(i.Name)
-					
+				if a[consts.ImageAnnotationRegistry] != "" || o.Registry != "" {
+					newRef, _ := reference.Parse(i.Name)
+
 					newReg := o.Registry // cli flag
 					// if no cli flag but there was an annotation, use the annotation.
 					if o.Registry == "" && a[consts.ImageAnnotationRegistry] != "" {
 						newReg = a[consts.ImageAnnotationRegistry]
 					}
-					
+
 					if newRef.Context().RegistryStr() == "" {
-						newRef,err = reference.Relocate(i.Name, newReg)
+						newRef, err = reference.Relocate(i.Name, newReg)
 						if err != nil {
 							return err
 						}
@@ -180,7 +202,7 @@ func processContent(ctx context.Context, fi *os.File, o *SyncOpts, s *store.Layo
 						}
 					}
 					l.Debugf("key for image [%s]", key)
-					
+
 					// verify signature using the provided key.
 					err := cosign.VerifySignature(ctx, s, key, i.Name)
 					if err != nil {
@@ -201,7 +223,7 @@ func processContent(ctx context.Context, fi *os.File, o *SyncOpts, s *store.Layo
 					platform = i.Platform
 				}
 				l.Debugf("platform for image [%s]", platform)
-				
+
 				err = storeImage(ctx, s, i, platform)
 				if err != nil {
 					return err

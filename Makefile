@@ -14,6 +14,9 @@ build:
 	mkdir bin;\
 	CGO_ENABLED=0 go build -o bin ./cmd/...;\
 
+build-offline:
+	CGO_ENABLED=0 go build -o bin ./cmd/...;
+
 build-all: fmt vet
 	goreleaser build --rm-dist --snapshot
 	
