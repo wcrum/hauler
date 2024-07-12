@@ -4,7 +4,7 @@ import (
 	"context"
 	"os"
 
-	"github.com/mholt/archiver/v3"
+	"github.com/mholt/archiver/v4"
 	"github.com/rancherfederal/hauler/pkg/content"
 	"github.com/rancherfederal/hauler/pkg/store"
 	"github.com/spf13/cobra"
@@ -45,7 +45,25 @@ func unarchiveLayoutTo(ctx context.Context, archivePath string, dest string) err
 	}
 	defer os.RemoveAll(tmpdir)
 
-	if err := archiver.Unarchive(archivePath, tmpdir); err != nil {
+	format := archiver.CompressedArchive{
+		Compression: archiver.Xz{},
+		Archival:    archiver.Tar{},
+	}
+
+	fileList := []string{}
+
+	handler := func(ctx context.Context, f archiver.File) error {
+		// do something with the file
+		return nil
+	}
+
+	archive, err := os.Open(archivePath)
+	if err != nil {
+		return err
+	}
+
+	err = format.Extract(ctx, archive, fileList, handler)
+	if err != nil {
 		return err
 	}
 

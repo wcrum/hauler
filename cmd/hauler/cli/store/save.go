@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/mholt/archiver/v3"
+	"github.com/mholt/archiver/v4"
 	"github.com/spf13/cobra"
 
 	"github.com/rancherfederal/hauler/pkg/log"
@@ -27,10 +27,6 @@ func (o *SaveOpts) AddArgs(cmd *cobra.Command) {
 func SaveCmd(ctx context.Context, o *SaveOpts, outputFile string) error {
 	l := log.FromContext(ctx)
 
-	// TODO: Support more formats?
-	a := archiver.NewTarZstd()
-	a.OverwriteExisting = true
-
 	absOutputfile, err := filepath.Abs(outputFile)
 	if err != nil {
 		return err
@@ -45,7 +41,28 @@ func SaveCmd(ctx context.Context, o *SaveOpts, outputFile string) error {
 		return err
 	}
 
-	err = a.Archive([]string{"."}, absOutputfile)
+	files, err := archiver.FilesFromDisk(nil, map[string]string{
+		".": "", // contents added recursively
+	})
+	if err != nil {
+		return err
+	}
+
+	out, err := os.Create(absOutputfile)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	// we can use the CompressedArchive type to gzip a tarball
+	// (compression is not required; you could use Tar directly)
+	format := archiver.CompressedArchive{
+		Compression: archiver.Xz{},
+		Archival:    archiver.Tar{},
+	}
+
+	// create the archive
+	err = format.Archive(context.Background(), out, files)
 	if err != nil {
 		return err
 	}

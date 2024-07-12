@@ -1,12 +1,13 @@
 package chart_test
 
 import (
+	"context"
 	"os"
 	"reflect"
 	"testing"
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
-	"github.com/mholt/archiver/v3"
+	"github.com/mholt/archiver/v4"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"helm.sh/helm/v3/pkg/action"
 
@@ -26,7 +27,24 @@ func TestNewChart(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpdir)
 
-	if err := archiver.Unarchive(chartpath, tmpdir); err != nil {
+	format := archiver.CompressedArchive{
+		Compression: archiver.Xz{},
+		Archival:    archiver.Tar{},
+	}
+	fileList := []string{}
+
+	handler := func(ctx context.Context, f archiver.File) error {
+		// do something with the file
+		return nil
+	}
+
+	archive, err := os.Open(chartpath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = format.Extract(context.TODO(), archive, fileList, handler)
+	if err != nil {
 		t.Fatal(err)
 	}
 
